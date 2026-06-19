@@ -67,6 +67,10 @@ fun PantallaRegistroContacto(
     var isLoading by remember { mutableStateOf(true) }
     var showContent by remember { mutableStateOf(false) }
 
+    // Guardamos el contacto original completo (con remoteId, syncStatus, etc.)
+    // para no perder esos datos cuando editamos y guardamos de nuevo
+    var originalContact by remember { mutableStateOf<Contact?>(null) }
+
     // Aquí guardamos los mensajes de error por si el usuario deja campos vacíos
 
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -97,6 +101,8 @@ fun PantallaRegistroContacto(
         if (contactId != null && contactId != -1L) {
             val contact = viewModel.getContactById(contactId)
             contact?.let {
+                originalContact = it
+                android.util.Log.d("DEBUG_SYNC", "CARGADO -> remoteId = ${it.remoteId}, id = ${it.id}, syncStatus = ${it.syncStatus}")
                 name = it.name
                 surname = it.surname
                 phone = it.phone
@@ -149,14 +155,27 @@ fun PantallaRegistroContacto(
                                     emailError = null
                                     phoneError = null
 
-                                    val contact = Contact(
-                                        id = contactId ?: 0L,
-                                        name = name.trim(),
-                                        surname = surname.trim(),
-                                        phone = phone,
-                                        email = email,
-                                        photoUri = photoUri?.toString()
-                                    )
+                                    // Si ya existía un contacto (edición), preservamos su remoteId,
+                                    // syncStatus previo y demás campos, solo actualizando lo editado.
+                                    // Si es nuevo, creamos el Contact desde cero.
+                                    android.util.Log.d("DEBUG_SYNC", "ANTES DE GUARDAR -> originalContact?.remoteId = ${originalContact?.remoteId}, originalContact?.id = ${originalContact?.id}, contactId param = $contactId")
+                                    val contact = if (originalContact != null) {
+                                        originalContact!!.copy(
+                                            name = name.trim(),
+                                            surname = surname.trim(),
+                                            phone = phone,
+                                            email = email,
+                                            photoUri = photoUri?.toString()
+                                        )
+                                    } else {
+                                        Contact(
+                                            name = name.trim(),
+                                            surname = surname.trim(),
+                                            phone = phone,
+                                            email = email,
+                                            photoUri = photoUri?.toString()
+                                        )
+                                    }
                                     try {
                                         if (contactId == null) viewModel.insert(contact) else viewModel.update(
                                             contact
@@ -276,9 +295,9 @@ fun PantallaRegistroContacto(
                         // Selector especial para el teléfono que ponemos las banderas
                         SmartPhoneSelector(
                             phone = phone,
-                            onPhoneChange = { 
+                            onPhoneChange = {
                                 phone = it.filter { c -> c.isDigit() }.take(10)
-                                phoneError = null 
+                                phoneError = null
                             },
                             error = phoneError,
                             primaryColor = primaryColor

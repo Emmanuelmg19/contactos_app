@@ -13,6 +13,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.cursokotlin.contactos_app.data.local.AppDatabase
 import com.cursokotlin.contactos_app.data.repository.ContactRepository
+import com.cursokotlin.contactos_app.data.worker.NetworkConnectivityObserver
 import com.cursokotlin.contactos_app.ui.ContactViewModel
 import com.cursokotlin.contactos_app.ui.ContactViewModelFactory
 import com.cursokotlin.contactos_app.ui.screens.PantallaDetalleContacto
@@ -25,14 +26,18 @@ import com.cursokotlin.contactos_app.ui.theme.Contactos_appTheme
 class MainActivity : ComponentActivity() {
     // El database es nuestro almacén de datos
     private val database by lazy { AppDatabase.getDatabase(this) }
-    
+
     // El repository es el administrador que maneja los pedidos a la base de datos
-    private val repository by lazy { ContactRepository(database.contactDao()) }
-    
+    private val repository by lazy { ContactRepository(database.contactDao(), this) }
+
     // El viewModel es el cerebro que conecta la lógica con lo que ves en pantalla
     private val viewModel: ContactViewModel by viewModels {
         ContactViewModelFactory(repository)
     }
+
+    // Observador que detecta cuando vuelve la conexión a internet
+    // y dispara la sincronización automática de la cola pendiente
+    private val networkObserver by lazy { NetworkConnectivityObserver(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,11 +48,23 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        // Empezamos a escuchar cambios de conectividad mientras la app está visible
+        networkObserver.startObserving()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Dejamos de escuchar cuando la app no está visible, para no gastar recursos
+        networkObserver.stopObserving()
+    }
 }
 
 
- //Este es el Mapa de Navegación de la app.
- //Aquí definimos a qué pantalla ir cuando el usuario hace clic en los  botones.
+//Este es el Mapa de Navegación de la app.
+//Aquí definimos a qué pantalla ir cuando el usuario hace clic en los  botones.
 
 @Composable
 fun ContactAppNavigation(viewModel: ContactViewModel) {
@@ -63,7 +80,7 @@ fun ContactAppNavigation(viewModel: ContactViewModel) {
                 }
             })
         }
-        
+
         // Lista principal de contactos
         composable("contact_list") {
             PantallaDeContactos(
@@ -80,7 +97,7 @@ fun ContactAppNavigation(viewModel: ContactViewModel) {
                 viewModel = viewModel,
                 onContactClick = { id -> navController.navigate("contact_detail/$id") },
                 onBack = { navController.popBackStack() },
-                onContactsClick = { 
+                onContactsClick = {
                     navController.navigate("contact_list") {
                         popUpTo("contact_list") { inclusive = true }
                     }
