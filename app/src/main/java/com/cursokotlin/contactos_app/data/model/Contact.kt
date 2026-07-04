@@ -19,8 +19,7 @@ data class Contact(
     val surname: String = "",
     val phone: String,
     val email: String = "",
-    val photoUri: String? = null,
-    val remoteImageUrl: String? = null,
+    val photoUri: String? = null,       // se mantiene para compatibilidad con vistas antiguas (index)
     val isFavorite: Boolean = false,
     val syncStatus: SyncStatus = SyncStatus.PENDING_CREATE,
     val isDeleted: Boolean = false,

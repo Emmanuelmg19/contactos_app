@@ -1,6 +1,7 @@
 package com.cursokotlin.contactos_app.data.repository
 
 import android.content.Context
+import android.net.Uri
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.NetworkType
@@ -8,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.cursokotlin.contactos_app.data.local.dao.ContactDao
 import com.cursokotlin.contactos_app.data.model.Contact
+import com.cursokotlin.contactos_app.data.model.ContactImage
 import com.cursokotlin.contactos_app.data.model.SyncAction
 import com.cursokotlin.contactos_app.data.model.SyncQueue
 import com.cursokotlin.contactos_app.data.model.SyncStatus
@@ -26,7 +28,11 @@ class ContactRepository(
     suspend fun getContactById(id: Long): Contact? = contactDao.getContactById(id)
     suspend fun getContactByEmail(email: String): Contact? = contactDao.getContactByEmail(email)
 
-    suspend fun insert(contact: Contact) {
+    fun getImagesForContact(contactLocalId: Long): Flow<List<ContactImage>> =
+        contactDao.getImagesForContact(contactLocalId)
+
+    // Devuelve el id local del contacto recién insertado, para poder asociarle imágenes de inmediato
+    suspend fun insert(contact: Contact): Long {
         val localId = contactDao.insertContact(
             contact.copy(syncStatus = SyncStatus.PENDING_CREATE)
         )
@@ -34,11 +40,10 @@ class ContactRepository(
             SyncQueue(contactLocalId = localId, action = SyncAction.PENDING_CREATE)
         )
         scheduleSyncWorker()
+        return localId
     }
 
     suspend fun update(contact: Contact) {
-        android.util.Log.d("DEBUG_SYNC", "REPOSITORY UPDATE -> remoteId=${contact.remoteId}, id=${contact.id}")
-
         try {
             contactDao.updateContact(
                 contact.copy(
@@ -51,16 +56,11 @@ class ContactRepository(
             val action = if (contact.remoteId != null) SyncAction.PENDING_UPDATE
             else SyncAction.PENDING_CREATE
 
-            android.util.Log.d("DEBUG_SYNC", "ACTION DECIDIDA -> $action, contactLocalId usado=${contact.id}")
-
-            val queueId = contactDao.insertSyncQueue(
+            contactDao.insertSyncQueue(
                 SyncQueue(contactLocalId = contact.id, action = action)
             )
 
-            android.util.Log.d("DEBUG_SYNC", "QUEUE INSERTADO CON ID -> $queueId")
-
             scheduleSyncWorker()
-            android.util.Log.d("DEBUG_SYNC", "WORKER PROGRAMADO OK")
         } catch (e: Exception) {
             android.util.Log.e("DEBUG_SYNC", "ERROR EN UPDATE: ${e.message}", e)
         }
@@ -73,10 +73,45 @@ class ContactRepository(
         contactDao.insertSyncQueue(
             SyncQueue(contactLocalId = contact.id, action = SyncAction.PENDING_DELETE)
         )
+        contactDao.deleteImagesForContact(contact.id)
         scheduleSyncWorker()
     }
 
-    // Sincronización manual: trae contactos desde la API y los guarda localmente
+    // Guarda localmente varias imágenes seleccionadas para un contacto (pendientes de subir)
+    suspend fun addLocalImagesForContact(contactLocalId: Long, uris: List<Uri>) {
+        uris.forEach { uri ->
+            contactDao.insertImage(
+                ContactImage(
+                    contactLocalId = contactLocalId,
+                    localPath = uri.toString(),
+                    syncStatus = SyncStatus.PENDING_CREATE
+                )
+            )
+        }
+        scheduleSyncWorker()
+    }
+
+    // Elimina una imagen: si ya estaba sincronizada, primero la borra del servidor
+    suspend fun deleteImage(image: ContactImage) {
+        try {
+            if (image.remoteId != null) {
+                val response = RetrofitInstance.api.deleteImage(image.remoteId)
+                if (response.isSuccessful || response.code() == 404) {
+                    contactDao.deleteImageById(image.localId)
+                } else {
+                    contactDao.updateImage(image.copy(isDeleted = true, syncStatus = SyncStatus.ERROR))
+                }
+            } else {
+                // Nunca se subió al servidor, la borramos directo
+                contactDao.deleteImageById(image.localId)
+            }
+        } catch (_: Exception) {
+            // Sin conexión: la marcamos como borrada localmente para que desaparezca de la UI
+            contactDao.updateImage(image.copy(isDeleted = true))
+        }
+    }
+
+    // Sincronización manual: trae contactos desde la API (index ligero) y los guarda localmente
     suspend fun syncFromApi() {
         try {
             val response = RetrofitInstance.api.getContacts()
@@ -92,11 +127,33 @@ class ContactRepository(
                                 name       = remote.name,
                                 email      = remote.email ?: "",
                                 phone      = remote.phone,
-                                remoteImageUrl = remote.image?.url,
+                                photoUri   = remote.thumbnail,
                                 syncStatus = SyncStatus.SYNCED
                             )
                         )
                     }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Trae el detalle completo (show) desde la API y guarda todas las imágenes localmente
+    suspend fun fetchContactDetail(contactLocalId: Long, remoteId: Long) {
+        try {
+            val response = RetrofitInstance.api.getContact(remoteId)
+            if (response.isSuccessful) {
+                val remote = response.body()?.data ?: return
+
+                contactDao.deleteImagesForContact(contactLocalId)
+                remote.images?.forEach { img ->
+                    contactDao.insertImage(
+                        ContactImage(
+                            remoteId = img.id,
+                            contactLocalId = contactLocalId,
+                            remoteUrl = img.url,
+                            syncStatus = SyncStatus.SYNCED
+                        )
+                    )
                 }
             }
         } catch (_: Exception) {}

@@ -26,13 +26,14 @@ class SyncWorker(
         val api = RetrofitInstance.api
 
         return try {
+            // 1. Sincronizamos primero los contactos (crear/actualizar/borrar)
             val pendingItems = dao.getPendingQueue()
 
             for (item in pendingItems) {
                 val contact = dao.getContactById(item.contactLocalId) ?: continue
 
                 try {
-                    val imagePart = buildImagePart(contact.photoUri)
+                    val imageParts = buildImageParts(contact.photoUri)
 
                     when (item.action) {
                         SyncAction.PENDING_CREATE -> {
@@ -40,7 +41,7 @@ class SyncWorker(
                             val phoneBody = contact.phone.toRequestBody("text/plain".toMediaTypeOrNull())
                             val emailBody = contact.email.toRequestBody("text/plain".toMediaTypeOrNull())
 
-                            val response = api.createContact(nameBody, phoneBody, emailBody, imagePart)
+                            val response = api.createContact(nameBody, phoneBody, emailBody, imageParts)
 
                             if (response.isSuccessful) {
                                 val remoteId = response.body()?.data?.id
@@ -59,7 +60,7 @@ class SyncWorker(
                             val emailBody = contact.email.toRequestBody("text/plain".toMediaTypeOrNull())
                             val methodBody = "PUT".toRequestBody("text/plain".toMediaTypeOrNull())
 
-                            val response = api.updateContact(remoteId, nameBody, phoneBody, emailBody, methodBody, imagePart)
+                            val response = api.updateContact(remoteId, nameBody, phoneBody, emailBody, methodBody, imageParts)
 
                             if (response.isSuccessful) {
                                 dao.updateSyncStatusOnly(contact.id, SyncStatus.SYNCED)
@@ -91,18 +92,54 @@ class SyncWorker(
                     dao.updateSyncStatusOnly(contact.id, SyncStatus.ERROR)
                 }
             }
+
+            // 2. Sincronizamos las imágenes sueltas de la galería que quedaron pendientes
+            //    (por ejemplo, varias imágenes seleccionadas en el formulario)
+            val pendingImages = dao.getPendingImages()
+            for (image in pendingImages) {
+                val contact = dao.getContactById(image.contactLocalId) ?: continue
+                val remoteId = contact.remoteId
+
+                // Si el contacto todavía no tiene remoteId (sigue pendiente de crearse),
+                // esperamos a la siguiente corrida del worker.
+                if (remoteId == null) continue
+
+                try {
+                    val part = buildSingleImagePart(image.localPath)
+                    if (part == null) continue
+
+                    val response = api.addImages(remoteId, listOf(part))
+                    if (response.isSuccessful) {
+                        val newRemoteImageId = response.body()?.data?.images?.lastOrNull()?.id
+                        dao.updateImageSyncStatus(image.localId, SyncStatus.SYNCED, newRemoteImageId)
+                    } else {
+                        dao.updateImageSyncStatusOnly(image.localId, SyncStatus.ERROR)
+                    }
+                } catch (e: Exception) {
+                    dao.updateImageSyncStatusOnly(image.localId, SyncStatus.ERROR)
+                }
+            }
+
             Result.success()
         } catch (e: Exception) {
             Result.retry()
         }
     }
 
-    // Convierte el Uri de la foto (content://) en un archivo temporal y lo empaqueta como multipart
-    private fun buildImagePart(photoUriString: String?): MultipartBody.Part? {
-        if (photoUriString.isNullOrBlank()) return null
+    // Convierte el Uri de la foto principal en un archivo temporal (una sola imagen, para el contacto)
+    private fun buildImageParts(photoUriString: String?): List<MultipartBody.Part> {
+        val part = buildSingleImagePart(photoUriString) ?: return emptyList()
+        return listOf(part)
+    }
+
+    // Convierte cualquier Uri de imagen (content://) en un MultipartBody.Part listo para subir
+    private fun buildSingleImagePart(uriString: String?): MultipartBody.Part? {
+        if (uriString.isNullOrBlank()) return null
+        // Si es una ruta remota (http...), no hay nada que subir, ya está en el servidor
+        if (uriString.startsWith("http")) return null
 
         return try {
-            val uri = Uri.parse(photoUriString)
+            val uri = Uri.parse(uriString)
             val inputStream = applicationContext.contentResolver.openInputStream(uri) ?: return null
 
             val mimeType = applicationContext.contentResolver.getType(uri) ?: "image/jpeg"
@@ -119,7 +156,7 @@ class SyncWorker(
             inputStream.close()
 
             val requestFile: RequestBody = tempFile.asRequestBody(mimeType.toMediaTypeOrNull())
-            MultipartBody.Part.createFormData("image", tempFile.name, requestFile)
+            MultipartBody.Part.createFormData("images[]", tempFile.name, requestFile)
         } catch (e: Exception) {
             null
         }

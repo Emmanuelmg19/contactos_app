@@ -29,40 +29,38 @@ import coil.compose.AsyncImage
 import com.cursokotlin.contactos_app.data.model.Contact
 import com.cursokotlin.contactos_app.ui.ContactViewModel
 import com.cursokotlin.contactos_app.ui.components.detail.ActionButton
+import com.cursokotlin.contactos_app.ui.components.detail.ContactImageGallery
 import com.cursokotlin.contactos_app.ui.components.detail.FavoriteButton
 import com.cursokotlin.contactos_app.ui.components.detail.InfoRow
 import com.cursokotlin.contactos_app.ui.components.detail.ProfessionalDeleteDialog
 import kotlinx.coroutines.delay
 
 
- //En esta parte es donde esta es la Pantalla de Detalle.
- //Su función es mostrar toda la información de un contacto específico: su foto grande,
- //nombre completo y opciones para llamarlo, mandarle correo o marcarlo como favorito.
+// Pantalla de Detalle. Muestra toda la información de un contacto específico: su galería
+// de fotos (varias imágenes tipo Telegram), nombre completo y opciones para llamarlo,
+// mandarle correo o marcarlo como favorito.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PantallaDetalleContacto(
     viewModel: ContactViewModel,
-    contactId: Long,              // El ID único del contacto que queremos ver
-    onBack: () -> Unit,           // Volver a la lista
-    onEdit: (Long) -> Unit        // Ir a la pantalla de edición
+    contactId: Long,
+    onBack: () -> Unit,
+    onEdit: (Long) -> Unit
 ) {
-    // Buscamos el contacto en nuestra lista usando su ID
     val contactState by viewModel.allContacts.collectAsState()
     val contact = contactState.find { it.id == contactId }
+    val galleryImages by viewModel.galleryImages.collectAsState()
     val context = LocalContext.current
     val primaryColor = Color(0xFF3F51B5)
 
-    // Estados para controlar el diálogo de borrar y la animación de salida
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
 
-    // Al entrar, le pedimos al ViewModel que nos traiga la info fresca de este contacto
     LaunchedEffect(contactId) {
         viewModel.fetchContactById(contactId)
     }
 
-    // Animaciones para cuando borramos al contacto (se hace pequeño y se desvanece)
     val animatedScale by animateFloatAsState(
         targetValue = if (isDeleting) 0.7f else 1f,
         animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
@@ -74,7 +72,6 @@ fun PantallaDetalleContacto(
         label = "alpha"
     )
 
-    // Si confirmamos que queremos borrar, esperamos a que termine la animación y volvemos atrás
     LaunchedEffect(isDeleting) {
         if (isDeleting) {
             delay(650)
@@ -85,7 +82,6 @@ fun PantallaDetalleContacto(
 
     Scaffold(
         topBar = {
-            // Barra superior azul con botón de volver, editar y borrar
             TopAppBar(
                 title = { Text("", color = Color.White) },
                 navigationIcon = {
@@ -121,79 +117,104 @@ fun PantallaDetalleContacto(
                         .padding(padding)
                         .background(Color.White)
                         .graphicsLayer(
-                            scaleX = animatedScale, // Aplicamos la animación de tamaño
+                            scaleX = animatedScale,
                             scaleY = animatedScale,
-                            alpha = animatedAlpha   // Aplicamos la transparencia al borrar
+                            alpha = animatedAlpha
                         )
                 ) {
-                    // Cabecera azul con la foto del contacto
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(280.dp)
-                            .background(primaryColor),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // Círculo blanco que contiene la foto
-                            Box(
-                                modifier = Modifier
-                                    .size(150.dp)
-                                    .shadow(12.dp, CircleShape)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                                    .padding(4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (c.photoUri != null) {
-                                    AsyncImage(
-                                        model = Uri.parse(c.photoUri),
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    // Si no hay foto, mostramos la inicial en grande
-                                    val initials = c.name.firstOrNull()?.uppercase() ?: ""
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFE8EAF6)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(initials, fontSize = 56.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                    if (galleryImages.isNotEmpty()) {
+                        // --- Contacto CON galería: mostramos el carrusel tipo Telegram ---
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(primaryColor)
+                                .padding(top = 12.dp, bottom = 20.dp)
+                        ) {
+                            Column {
+                                ContactImageGallery(
+                                    images = galleryImages,
+                                    primaryColor = Color.White,
+                                    onDeleteImage = { image -> viewModel.deleteImage(image) }
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "${c.name} ${c.surname}",
+                                    color = Color.White,
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        // --- Contacto SIN galería: mantenemos el círculo original ---
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(280.dp)
+                                .background(primaryColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(150.dp)
+                                        .shadow(12.dp, CircleShape)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                        .padding(4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (c.photoUri != null) {
+                                        AsyncImage(
+                                            model = c.photoUri,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        val initials = c.name.firstOrNull()?.uppercase() ?: ""
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFE8EAF6)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(initials, fontSize = 56.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                                        }
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "${c.name} ${c.surname}",
+                                    color = Color.White,
+                                    fontSize = 30.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp
+                                )
                             }
-                            
-                            Spacer(modifier = Modifier.height(16.dp))
-                            // Nombre completo del contacto
-                            Text(
-                                text = "${c.name} ${c.surname}",
-                                color = Color.White,
-                                fontSize = 30.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 0.5.sp
-                            )
                         }
                     }
 
-                    // Fila de botones rápidos: Llamar, Mensaje y Favorito
                     Row(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .offset(y = (-35).dp) // Hace que los botones floten sobre la división
+                            .offset(y = (-35).dp)
                     ) {
                         ActionButton(icon = Icons.Default.Phone, label = "Llamar", primaryColor = primaryColor) {
                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${c.phone}"))
                             context.startActivity(intent)
                         }
-                        
+
                         Spacer(modifier = Modifier.width(24.dp))
 
                         ActionButton(icon = Icons.Default.Email, label = "Correo", primaryColor = primaryColor) {
@@ -210,7 +231,6 @@ fun PantallaDetalleContacto(
                         )
                     }
 
-                    // Tarjeta blanca con la información de contacto detallada
                     Card(
                         modifier = Modifier
                             .padding(horizontal = 24.dp)
@@ -232,13 +252,12 @@ fun PantallaDetalleContacto(
                     }
                 }
 
-                // Si pulsamos el icono de basura, sale un aviso
                 if (showDeleteConfirmation) {
                     ProfessionalDeleteDialog(
                         contactName = c.name,
                         onConfirm = {
                             showDeleteConfirmation = false
-                            isDeleting = true // Iniciamos la animación de despedida
+                            isDeleting = true
                         },
                         onDismiss = { showDeleteConfirmation = false }
                     )

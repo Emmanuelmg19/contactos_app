@@ -56,6 +56,12 @@ fun PantallaDeContactos(
     // Obtenemos la lista de contactos desde el "cerebro" de la app
     val contacts by viewModel.allContacts.collectAsState()
 
+    // Al entrar a esta pantalla, pedimos al servidor la lista actualizada de contactos
+    // (index ligero: sin galería completa, solo datos básicos + miniatura/contador)
+    LaunchedEffect(Unit) {
+        viewModel.syncFromApi()
+    }
+
     // Aquí guardamos lo que el usuario escribe en la barrita de búsqueda
     var searchQuery by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -273,7 +279,7 @@ fun PantallaDeContactos(
                                 // Animación de salida cuando se borra el contacto
                                 SpectacularExitItem(
                                     isDeleting = isDeleting,
-                                    onAnimationFinished = { 
+                                    onAnimationFinished = {
                                         viewModel.delete(contact)
                                         deletingIds.remove(contact.id)
                                     }
@@ -323,11 +329,11 @@ fun PantallaDeContactos(
             )
         }
     }
- }
+}
 
 
- //En esta seccion lo que hace esta  función es que los contactos aparezcan uno por uno de abajo hacia arriba
- //de forma elegante cuando abres la app.
+//En esta seccion lo que hace esta  función es que los contactos aparezcan uno por uno de abajo hacia arriba
+//de forma elegante cuando abres la app.
 
 @Composable
 fun AnimatedEntranceItem(
@@ -366,7 +372,7 @@ fun SpectacularExitItem(
     content: @Composable () -> Unit
 ) {
     val transition = updateTransition(targetState = isDeleting, label = "spectacularExit")
-    
+
     val scale by transition.animateFloat(
         transitionSpec = { tween(durationMillis = 500, easing = FastOutSlowInEasing) },
         label = "scale"
@@ -378,8 +384,8 @@ fun SpectacularExitItem(
     ) { if (it) 0f else 1f }
 
     val translationX by transition.animateFloat(
-        transitionSpec = { 
-            tween(durationMillis = 600, easing = CubicBezierEasing(0.36f, 0f, 0.66f, -0.56f)) 
+        transitionSpec = {
+            tween(durationMillis = 600, easing = CubicBezierEasing(0.36f, 0f, 0.66f, -0.56f))
         },
         label = "flyOut"
     ) { if (it) 1200f else 0f }

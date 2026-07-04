@@ -7,7 +7,11 @@ data class ContactApiModel(
     val phone: String = "",
     val created_at: String? = null,
     val updated_at: String? = null,
-    val image: ImageApiModel? = null
+    // Viene del index (ligero)
+    val image_count: Int? = null,
+    val thumbnail: String? = null,
+    // Viene del show (completo)
+    val images: List<ImageApiModel>? = null
 )
 
 data class ImageApiModel(

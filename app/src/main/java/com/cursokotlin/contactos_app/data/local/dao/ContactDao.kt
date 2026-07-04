@@ -2,6 +2,7 @@ package com.cursokotlin.contactos_app.data.local.dao
 
 import androidx.room.*
 import com.cursokotlin.contactos_app.data.model.Contact
+import com.cursokotlin.contactos_app.data.model.ContactImage
 import com.cursokotlin.contactos_app.data.model.SyncQueue
 import com.cursokotlin.contactos_app.data.model.SyncStatus
 import kotlinx.coroutines.flow.Flow
@@ -54,4 +55,34 @@ interface ContactDao {
 
     @Query("SELECT * FROM contacts WHERE isDeleted = 0")
     suspend fun getAllContactsList(): List<Contact>
+
+    // ---- Imágenes del contacto (galería) ----
+
+    @Query("SELECT * FROM contact_images WHERE contactLocalId = :contactLocalId AND isDeleted = 0")
+    fun getImagesForContact(contactLocalId: Long): Flow<List<ContactImage>>
+
+    @Query("SELECT * FROM contact_images WHERE contactLocalId = :contactLocalId AND isDeleted = 0")
+    suspend fun getImagesForContactList(contactLocalId: Long): List<ContactImage>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertImage(image: ContactImage): Long
+
+    @Update
+    suspend fun updateImage(image: ContactImage)
+
+    @Query("DELETE FROM contact_images WHERE contactLocalId = :contactLocalId")
+    suspend fun deleteImagesForContact(contactLocalId: Long)
+
+    @Query("DELETE FROM contact_images WHERE localId = :localId")
+    suspend fun deleteImageById(localId: Long)
+
+    // Imágenes que aún no se han subido al servidor (para la cola de sincronización)
+    @Query("SELECT * FROM contact_images WHERE syncStatus != 'SYNCED' AND isDeleted = 0")
+    suspend fun getPendingImages(): List<ContactImage>
+
+    @Query("UPDATE contact_images SET syncStatus = :status, remoteId = :remoteId WHERE localId = :localId")
+    suspend fun updateImageSyncStatus(localId: Long, status: SyncStatus, remoteId: Long?)
+
+    @Query("UPDATE contact_images SET syncStatus = :status WHERE localId = :localId")
+    suspend fun updateImageSyncStatusOnly(localId: Long, status: SyncStatus)
 }

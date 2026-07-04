@@ -9,9 +9,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -26,6 +29,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import coil.compose.AsyncImage
 import com.cursokotlin.contactos_app.data.model.Contact
@@ -38,71 +42,66 @@ import com.cursokotlin.contactos_app.validation.ValidationResult
 import kotlinx.coroutines.launch
 
 
-//Aqui es donde tenemos la Pantalla de Registro.
-//Que nos sirve tanto para crear un contacto nuevo como para editar uno que ya existe.
-//Es como un formulario de papel, pero digital y muy inteligente.
+// Pantalla de Registro/Edición de contacto. Permite crear uno nuevo o editar uno existente,
+// incluyendo la selección de VARIAS imágenes para la galería del contacto.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PantallaRegistroContacto(
     viewModel: ContactViewModel,
-    contactId: Long? = null, // Si viene un ID, significa que estamos editando. Si es nulo, es uno nuevo.
-    onBack: () -> Unit       // Función para cerrar esta pantalla y volver
+    contactId: Long? = null,
+    onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val primaryColor =
-        Color(0xFF1A56DB) // Implementamos el color azul a referencia de los diseño proporcionados por el profesor
-
-    // Aquí guardamos temporalmente lo que el usuario escribe antes de guardarlo definitivamente
+    val primaryColor = Color(0xFF1A56DB)
 
     var name by remember { mutableStateOf("") }
     var surname by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
 
-    // Para la foto del contacto
-
+    // Imagen de portada (se usa como miniatura en el index)
     var photoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Todas las imágenes seleccionadas para la galería del contacto (pueden ser varias)
+    val selectedImageUris = remember { mutableStateListOf<Uri>() }
+
     var isLoading by remember { mutableStateOf(true) }
     var showContent by remember { mutableStateOf(false) }
-
-    // Guardamos el contacto original completo (con remoteId, syncStatus, etc.)
-    // para no perder esos datos cuando editamos y guardamos de nuevo
     var originalContact by remember { mutableStateOf<Contact?>(null) }
-
-    // Aquí guardamos los mensajes de error por si el usuario deja campos vacíos
 
     var nameError by remember { mutableStateOf<String?>(null) }
     var phoneError by remember { mutableStateOf<String?>(null) }
     var emailError by remember { mutableStateOf<String?>(null) }
 
-    // Este es el buscador de fotos. Nos permite elegir una imagen de la galería del .dispositivo del usuario
+    // Selector MÚLTIPLE de imágenes (hasta 10 a la vez, suficiente para el examen)
     val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        uri?.let {
-            try {
-
-                // Pedimos permiso permanente para poder ver la foto siempre, no solo una vez
-                context.contentResolver.takePersistableUriPermission(
-                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-                photoUri = it
-            } catch (e: Exception) {
-                e.printStackTrace()
+        contract = ActivityResultContracts.PickMultipleVisualMedia(10)
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            uris.forEach { uri ->
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            selectedImageUris.addAll(uris)
+            // La primera imagen elegida (o la primera de todas) sirve como miniatura del index
+            if (photoUri == null) {
+                photoUri = selectedImageUris.first()
             }
         }
     }
-
-    // Si estamos editando un contacto, al abrir la pantalla vamos a buscar sus datos
 
     LaunchedEffect(contactId) {
         if (contactId != null && contactId != -1L) {
             val contact = viewModel.getContactById(contactId)
             contact?.let {
                 originalContact = it
-                android.util.Log.d("DEBUG_SYNC", "CARGADO -> remoteId = ${it.remoteId}, id = ${it.id}, syncStatus = ${it.syncStatus}")
                 name = it.name
                 surname = it.surname
                 phone = it.phone
@@ -116,7 +115,6 @@ fun PantallaRegistroContacto(
 
     Scaffold(
         topBar = {
-            // La barra de arriba con el botón de X y el botón de Confirmar
             TopAppBar(
                 title = {
                     Text(
@@ -127,38 +125,22 @@ fun PantallaRegistroContacto(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Cancelar",
-                            tint = primaryColor
-                        )
+                        Icon(Icons.Default.Close, contentDescription = "Cancelar", tint = primaryColor)
                     }
                 },
                 actions = {
-                    // El botón de Palomita para guardar
                     IconButton(onClick = {
                         scope.launch {
-
-                            // Primero le preguntamos a la señora muy amable que verifique que todo este correcto
                             val result = ContactValidator.validateContact(
-                                name,
-                                email,
-                                phone,
-                                contactId,
-                                viewModel
+                                name, email, phone, contactId, viewModel
                             )
 
                             when (result) {
                                 is ValidationResult.Success -> {
-                                    // Si todo está bien, limpiamos errores y guardamos
                                     nameError = null
                                     emailError = null
                                     phoneError = null
 
-                                    // Si ya existía un contacto (edición), preservamos su remoteId,
-                                    // syncStatus previo y demás campos, solo actualizando lo editado.
-                                    // Si es nuevo, creamos el Contact desde cero.
-                                    android.util.Log.d("DEBUG_SYNC", "ANTES DE GUARDAR -> originalContact?.remoteId = ${originalContact?.remoteId}, originalContact?.id = ${originalContact?.id}, contactId param = $contactId")
                                     val contact = if (originalContact != null) {
                                         originalContact!!.copy(
                                             name = name.trim(),
@@ -176,28 +158,29 @@ fun PantallaRegistroContacto(
                                             photoUri = photoUri?.toString()
                                         )
                                     }
+
                                     try {
-                                        if (contactId == null) viewModel.insert(contact) else viewModel.update(
-                                            contact
-                                        )
-                                        Toast.makeText(
-                                            context,
-                                            "Guardado con éxito",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
+                                        val localId = if (contactId == null) {
+                                            viewModel.insertAndGetId(contact)
+                                        } else {
+                                            viewModel.update(contact)
+                                            contact.id
+                                        }
+
+                                        // Guardamos localmente todas las imágenes seleccionadas;
+                                        // quedan pendientes y el SyncWorker las sube en cuanto haya conexión
+                                        if (selectedImageUris.isNotEmpty()) {
+                                            viewModel.addLocalImages(localId, selectedImageUris.toList())
+                                        }
+
+                                        Toast.makeText(context, "Guardado con éxito", Toast.LENGTH_SHORT).show()
                                         onBack()
                                     } catch (e: Exception) {
-                                        Toast.makeText(
-                                            context,
-                                            "Error: ${e.message}",
-                                            Toast.LENGTH_LONG
-                                        ).show()
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                                     }
                                 }
 
                                 is ValidationResult.Errors -> {
-
-                                    // Si algo falló, mostramos los mensajes de error en los campos correspondientes como email, correo o el numero celular
                                     nameError = result.fieldErrors["name"]
                                     emailError = result.fieldErrors["email"]
                                     phoneError = result.fieldErrors["phone"]
@@ -205,11 +188,7 @@ fun PantallaRegistroContacto(
                             }
                         }
                     }) {
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = "Guardar",
-                            tint = primaryColor
-                        )
+                        Icon(Icons.Rounded.Check, contentDescription = "Guardar", tint = primaryColor)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -217,10 +196,8 @@ fun PantallaRegistroContacto(
         }
     ) { padding ->
         if (isLoading) {
-            FullScreenLoading() // Circulito de carga mientras buscamos los datos
+            FullScreenLoading()
         } else {
-
-            // Agregamos la animación para que el formulario aparezca subiendo un poquito
             AnimatedVisibility(
                 visible = showContent,
                 enter = fadeIn(animationSpec = tween(600)) + slideInVertically(initialOffsetY = { 50 })
@@ -230,25 +207,20 @@ fun PantallaRegistroContacto(
                         .fillMaxSize()
                         .padding(padding)
                         .background(Color.White)
-                        .verticalScroll(rememberScrollState()) // Permite bajar si el teclado tapa algo
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    // El espacio para la foto de perfil
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 32.dp), contentAlignment = Alignment.Center
+                            .padding(top = 32.dp, bottom = 12.dp), contentAlignment = Alignment.Center
                     ) {
                         Surface(
                             modifier = Modifier.size(110.dp),
                             shape = CircleShape,
                             color = Color(0xFFF3F4F6),
                             onClick = {
-
-                                // Al tocar el círculo con el icono de camara , se abre la galería
                                 galleryLauncher.launch(
-                                    PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             }
                         ) {
@@ -262,8 +234,6 @@ fun PantallaRegistroContacto(
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
-
-                                // Si no hay foto, ponemos un icono de cámara
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         Icons.Rounded.AddAPhoto,
@@ -276,7 +246,64 @@ fun PantallaRegistroContacto(
                         }
                     }
 
-                    // Estos son todos los cuadros donde el usuario escribe
+                    Text(
+                        text = "Toca para elegir una o varias imágenes",
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    // Tira de miniaturas de todas las imágenes seleccionadas para la galería
+                    if (selectedImageUris.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 24.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            selectedImageUris.forEachIndexed { index, uri ->
+                                Box {
+                                    AsyncImage(
+                                        model = uri,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(70.dp)
+                                            .clip(RoundedCornerShape(14.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    // Botón para quitar esta imagen de la selección antes de guardar
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(2.dp)
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.6f))
+                                            .clickable {
+                                                val removed = selectedImageUris.removeAt(index)
+                                                if (photoUri == removed) {
+                                                    photoUri = selectedImageUris.firstOrNull()
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Quitar",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(20.dp))
+                    }
+
                     Column(modifier = Modifier.padding(bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Input(
                             value = name,
@@ -292,7 +319,6 @@ fun PantallaRegistroContacto(
                             label = "Apellidos (Opcional)"
                         )
 
-                        // Selector especial para el teléfono que ponemos las banderas
                         SmartPhoneSelector(
                             phone = phone,
                             onPhoneChange = {

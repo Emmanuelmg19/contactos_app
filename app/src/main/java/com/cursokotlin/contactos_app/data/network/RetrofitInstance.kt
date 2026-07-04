@@ -10,7 +10,7 @@ object RetrofitInstance {
 
     // Para emulador usa 10.0.2.2, para dispositivo físico usa tu IP local
     private const val BASE_URL = "http://192.168.1.11:8000/"
-
+    const val IMAGE_BASE_URL = "http://192.168.1.11:8000" // sin slash final, para concatenar con /storage/
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BASIC
     }

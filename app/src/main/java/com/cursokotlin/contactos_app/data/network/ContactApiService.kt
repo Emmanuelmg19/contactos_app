@@ -19,7 +19,7 @@ interface ContactApiService {
         @Part("name") name: RequestBody,
         @Part("phone") phone: RequestBody,
         @Part("email") email: RequestBody?,
-        @Part image: MultipartBody.Part?
+        @Part images: List<MultipartBody.Part>
     ): Response<ApiResponse<ContactApiModel>>
 
     @Multipart
@@ -30,9 +30,19 @@ interface ContactApiService {
         @Part("phone") phone: RequestBody,
         @Part("email") email: RequestBody?,
         @Part("_method") method: RequestBody,
-        @Part image: MultipartBody.Part?
+        @Part images: List<MultipartBody.Part>
     ): Response<ApiResponse<ContactApiModel>>
 
     @DELETE("api/users/{id}")
     suspend fun deleteContact(@Path("id") id: Long): Response<Unit>
+
+    @Multipart
+    @POST("api/users/{id}/images")
+    suspend fun addImages(
+        @Path("id") id: Long,
+        @Part images: List<MultipartBody.Part>
+    ): Response<ApiResponse<ContactApiModel>>
+
+    @DELETE("api/images/{id}")
+    suspend fun deleteImage(@Path("id") id: Long): Response<Unit>
 }

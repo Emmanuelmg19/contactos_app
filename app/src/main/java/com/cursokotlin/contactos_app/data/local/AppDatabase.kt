@@ -6,11 +6,12 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.cursokotlin.contactos_app.data.local.dao.ContactDao
 import com.cursokotlin.contactos_app.data.model.Contact
+import com.cursokotlin.contactos_app.data.model.ContactImage
 import com.cursokotlin.contactos_app.data.model.SyncQueue
 
 @Database(
-    entities = [Contact::class, SyncQueue::class],
-    version = 7,
+    entities = [Contact::class, SyncQueue::class, ContactImage::class],
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
